@@ -1,4 +1,4 @@
-import { app, Tray, Menu, nativeImage, dialog, shell } from 'electron'
+import { app, Tray, Menu, nativeImage, dialog, shell, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import { autoUpdater } from 'electron-updater'
 import { Store } from './store'
@@ -9,19 +9,15 @@ let tray: Tray | null = null
 let socket: QrokanSocket | null = null
 const store = new Store()
 
-// Windows 7 uyumluluğu için single instance lock
 const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
-  app.quit()
-}
+if (!gotLock) app.quit()
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   app.setAppUserModelId('com.qrokan.agent')
 
-  const icon = nativeImage.createFromPath(
-    path.join(__dirname, '../assets/tray-icon.png')
-  )
-  tray = new Tray(icon)
+  const iconPath = path.join(__dirname, '../assets/tray-icon.png')
+  const icon = nativeImage.createFromPath(iconPath)
+  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon)
   updateTray('disconnected')
 
   const apiKey = store.get('apiKey')
@@ -31,7 +27,7 @@ app.whenReady().then(() => {
     promptApiKey()
   }
 
-  autoUpdater.checkForUpdatesAndNotify()
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {})
 })
 
 app.on('window-all-closed', () => {
@@ -47,53 +43,134 @@ function updateTray(status: 'connected' | 'disconnected' | 'printing') {
     printing: '🖨️ Qrokan Agent — Yazdırıyor...',
   }
 
-  tray.setToolTip(labels[status])
+  const printer = store.get('printer')
+  const printerLabel = printer ? `Yazıcı: ${printer.name}` : 'Yazıcı seçilmemiş'
 
-  const menu = Menu.buildFromTemplate([
+  tray.setToolTip(labels[status])
+  tray.setContextMenu(Menu.buildFromTemplate([
     { label: labels[status], enabled: false },
+    { label: printerLabel, enabled: false },
     { type: 'separator' },
-    {
-      label: 'Yazıcı Seç',
-      click: () => selectPrinter(),
-    },
-    {
-      label: 'API Anahtarını Değiştir',
-      click: () => promptApiKey(),
-    },
+    { label: 'Yazıcıyı Otomatik Tara', click: () => autoDetectPrinter() },
+    { label: 'Yazıcı Seç', click: () => selectPrinter() },
+    { label: 'API Anahtarını Değiştir', click: () => promptApiKey() },
     { type: 'separator' },
-    {
-      label: 'Qrokan Dashboard',
-      click: () => shell.openExternal('https://qrokan.com/dashboard'),
-    },
+    { label: 'Qrokan Dashboard', click: () => shell.openExternal('https://qrokan.com/dashboard') },
     { type: 'separator' },
-    {
-      label: 'Çıkış',
-      click: () => {
-        socket?.disconnect()
-        app.quit()
-      },
-    },
-  ])
-  tray.setContextMenu(menu)
+    { label: 'Çıkış', click: () => { socket?.disconnect(); app.quit() } },
+  ]))
+}
+
+async function autoDetectPrinter(silent = false) {
+  const printers = await PrinterManager.list()
+  // Ağ placeholder'ını çıkar — sadece gerçek yazıcılar
+  const real = printers.filter(p => !(p.type === 'network' && p.name.includes('Manuel')))
+
+  if (real.length === 0) {
+    if (!silent) {
+      dialog.showMessageBox({
+        type: 'warning',
+        title: 'Yazıcı Bulunamadı',
+        message: 'Bağlı USB veya ağ yazıcısı tespit edilemedi.',
+        detail: 'Yazıcınızın açık ve bağlı olduğundan emin olun.',
+      })
+    }
+    return
+  }
+
+  if (real.length === 1) {
+    // Tek yazıcı — otomatik seç
+    store.set('printer', real[0])
+    updateTray('connected')
+    if (!silent) {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Yazıcı Bulundu',
+        message: `Yazıcı otomatik seçildi: ${real[0].name}`,
+      })
+    }
+    return
+  }
+
+  // Birden fazla yazıcı — kullanıcıya sor
+  await selectPrinterFromList(real)
+}
+
+async function selectPrinter() {
+  const printers = await PrinterManager.list()
+  if (printers.length === 0) {
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Yazıcı bulunamadı',
+      detail: 'USB veya ağ yazıcısı bağlı değil.',
+    })
+    return
+  }
+  await selectPrinterFromList(printers)
+}
+
+function selectPrinterFromList(printers: Awaited<ReturnType<typeof PrinterManager.list>>) {
+  return new Promise<void>((resolve) => {
+    const win = new BrowserWindow({
+      width: 440,
+      height: 320,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      title: 'Yazıcı Seç — Qrokan Agent',
+      webPreferences: { nodeIntegration: true, contextIsolation: false },
+    })
+
+    const options = printers.map((p, i) =>
+      `<option value="${i}">${p.name}${p.type === 'network' ? ' (Ağ)' : ' (USB)'}</option>`
+    ).join('')
+
+    win.loadURL(`data:text/html,<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:system-ui,sans-serif;padding:20px;background:#1a1a1a;color:#fff;margin:0">
+<p style="margin:0 0 10px;font-size:14px;color:#aaa">Yazıcı seçin:</p>
+<select id="p" style="width:100%;padding:10px;background:#2a2a2a;color:#fff;border:1px solid #444;border-radius:8px;font-size:14px;margin-bottom:16px">
+${options}
+</select>
+<button onclick="require('electron').ipcRenderer.send('printer-select',document.getElementById('p').value)"
+  style="width:100%;padding:10px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">
+  Seç ve Kaydet
+</button>
+</body></html>`)
+
+    ipcMain.once('printer-select', (_, idx: string) => {
+      win.close()
+      const selected = printers[parseInt(idx)]
+      store.set('printer', selected)
+      updateTray('connected')
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Yazıcı Seçildi',
+        message: `✓ ${selected.name}`,
+        detail: 'Bundan sonra siparişler bu yazıcıya gönderilecek.',
+      })
+      resolve()
+    })
+
+    win.on('closed', () => resolve())
+  })
 }
 
 async function promptApiKey() {
-  const { response, checkboxChecked } = await dialog.showMessageBox({
+  const { response } = await dialog.showMessageBox({
     type: 'question',
     title: 'Qrokan Agent',
     message: 'API Anahtarı Gerekli',
-    detail: 'Qrokan dashboard\'dan Ayarlar → Agent bölümünden API anahtarınızı kopyalayın.',
+    detail: 'Qrokan Dashboard → Kiosk Ekranı → Yazıcı Agent bölümünden API anahtarınızı kopyalayın.',
     buttons: ['API Anahtarı Gir', 'İptal'],
     defaultId: 0,
   })
 
   if (response !== 0) return
 
-  // Basit input dialog — electron'da native input yok, prompt penceresi açıyoruz
-  const { BrowserWindow } = require('electron')
   const win = new BrowserWindow({
-    width: 420,
-    height: 200,
+    width: 440,
+    height: 220,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -101,64 +178,25 @@ async function promptApiKey() {
     webPreferences: { nodeIntegration: true, contextIsolation: false },
   })
 
-  win.loadURL(`data:text/html,
-    <html><body style="font-family:sans-serif;padding:20px;background:#1a1a1a;color:#fff">
-    <p style="margin-bottom:8px">API Anahtarınızı girin:</p>
-    <input id="k" type="text" style="width:100%;padding:8px;background:#333;color:#fff;border:1px solid #555;border-radius:6px;font-size:14px" placeholder="qrk_...">
-    <button onclick="const k=document.getElementById('k').value;if(k){require('electron').ipcRenderer.send('api-key',k)}"
-      style="margin-top:12px;width:100%;padding:8px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">
-      Bağlan
-    </button>
-    </body></html>
-  `)
+  win.loadURL(`data:text/html,<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head>
+<body style="font-family:system-ui,sans-serif;padding:20px;background:#1a1a1a;color:#fff;margin:0">
+<p style="margin:0 0 10px;font-size:14px;color:#aaa">API Anahtarınızı girin:</p>
+<input id="k" type="text" autofocus
+  style="width:100%;padding:10px;background:#2a2a2a;color:#fff;border:1px solid #444;border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:16px"
+  placeholder="qrk_...">
+<button onclick="const k=document.getElementById('k').value.trim();if(k)require('electron').ipcRenderer.send('api-key',k)"
+  style="width:100%;padding:10px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">
+  Bağlan
+</button>
+</body></html>`)
 
-  const { ipcMain } = require('electron')
-  ipcMain.once('api-key', (_: unknown, key: string) => {
+  ipcMain.once('api-key', async (_, key: string) => {
     win.close()
     store.set('apiKey', key)
     connect(key)
-  })
-}
-
-async function selectPrinter() {
-  const printers = await PrinterManager.list()
-  if (printers.length === 0) {
-    dialog.showMessageBox({ type: 'info', message: 'Yazıcı bulunamadı', detail: 'USB veya ağ yazıcısı bağlı değil.' })
-    return
-  }
-
-  const { BrowserWindow } = require('electron')
-  const win = new BrowserWindow({
-    width: 420,
-    height: 300,
-    resizable: false,
-    title: 'Yazıcı Seç',
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
-  })
-
-  const options = printers.map((p, i) =>
-    `<option value="${i}">${p.name}${p.type === 'network' ? ' (Ağ)' : ' (USB)'}</option>`
-  ).join('')
-
-  win.loadURL(`data:text/html,
-    <html><body style="font-family:sans-serif;padding:20px;background:#1a1a1a;color:#fff">
-    <p style="margin-bottom:8px">Yazıcı seçin:</p>
-    <select id="p" style="width:100%;padding:8px;background:#333;color:#fff;border:1px solid #555;border-radius:6px;font-size:14px">
-    ${options}
-    </select>
-    <button onclick="require('electron').ipcRenderer.send('printer-select',document.getElementById('p').value)"
-      style="margin-top:12px;width:100%;padding:8px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">
-      Seç
-    </button>
-    </body></html>
-  `)
-
-  const { ipcMain } = require('electron')
-  ipcMain.once('printer-select', (_: unknown, idx: string) => {
-    win.close()
-    const selected = printers[parseInt(idx)]
-    store.set('printer', selected)
-    dialog.showMessageBox({ type: 'info', message: `Yazıcı seçildi: ${selected.name}` })
+    // Bağlandıktan sonra yazıcıyı otomatik tara
+    setTimeout(() => autoDetectPrinter(false), 2000)
   })
 }
 
@@ -166,24 +204,50 @@ function connect(apiKey: string) {
   socket?.disconnect()
   socket = new QrokanSocket({
     apiKey,
-    onConnected: () => updateTray('connected'),
+    onConnected: () => {
+      updateTray('connected')
+      // İlk bağlantıda yazıcı seçili değilse otomatik tara
+      if (!store.get('printer')) {
+        setTimeout(() => autoDetectPrinter(false), 1500)
+      }
+    },
     onDisconnected: () => {
       updateTray('disconnected')
-      // 10 saniye sonra yeniden bağlan
       setTimeout(() => connect(apiKey), 10_000)
     },
     onPrintJob: async (job) => {
       updateTray('printing')
-      const printer = store.get('printer')
+      let printer = store.get('printer')
+
       if (!printer) {
-        dialog.showMessageBox({ type: 'warning', message: 'Yazıcı seçilmemiş', detail: 'Tray ikonuna sağ tıklayıp yazıcı seçin.' })
-        updateTray('connected')
-        return
+        // Yazıcı seçili değil — otomatik tara, bulamazsan uyar
+        const printers = await PrinterManager.list()
+        const real = printers.filter(p => !(p.type === 'network' && p.name.includes('Manuel')))
+        if (real.length === 1) {
+          store.set('printer', real[0])
+          printer = real[0]
+        } else {
+          dialog.showMessageBox({
+            type: 'warning',
+            title: 'Yazıcı Seçilmemiş',
+            message: 'Sipariş geldi ama yazıcı seçili değil.',
+            detail: 'Tray ikonuna sağ tıklayıp "Yazıcıyı Otomatik Tara" veya "Yazıcı Seç" seçeneğini kullanın.',
+          })
+          updateTray('connected')
+          return
+        }
       }
+
       try {
         await PrinterManager.print(printer, job)
       } catch (e: unknown) {
         console.error('Print error:', e)
+        dialog.showMessageBox({
+          type: 'error',
+          title: 'Yazdırma Hatası',
+          message: 'Sipariş yazdırılamadı.',
+          detail: e instanceof Error ? e.message : 'Bilinmeyen hata',
+        })
       }
       updateTray('connected')
     },
