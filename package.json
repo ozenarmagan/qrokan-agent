@@ -32,11 +32,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "publish": {
-      "provider": "github",
-      "owner": "ozenarmagan",
-      "repo": "qrokan-agent"
-    }
+    "publish": null
   },
   "dependencies": {
     "electron-updater": "^6.1.7",
