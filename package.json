@@ -1,0 +1,59 @@
+{
+  "name": "qrokan-agent",
+  "version": "1.0.0",
+  "description": "Qrokan yazıcı ajanı — gelen siparişleri otomatik yazdırır",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc --watch & electron .",
+    "build": "tsc",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:all": "npm run build && electron-builder --win --mac"
+  },
+  "build": {
+    "appId": "com.qrokan.agent",
+    "productName": "Qrokan Agent",
+    "copyright": "Copyright © 2025 Qrokan",
+    "directories": {
+      "output": "out"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64", "ia32"] }],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.utilities"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "ozenarmagan",
+      "repo": "qrokan-agent"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "escpos": "^3.0.0-alpha",
+    "escpos-network": "^3.0.0-alpha",
+    "escpos-usb": "^3.0.0-alpha",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.10",
+    "electron": "^22.3.27",
+    "electron-builder": "^24.9.1",
+    "typescript": "^5.3.0"
+  }
+}
