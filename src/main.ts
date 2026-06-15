@@ -121,22 +121,10 @@ function selectPrinterFromList(printers: Awaited<ReturnType<typeof PrinterManage
       webPreferences: { nodeIntegration: true, contextIsolation: false },
     })
 
-    const options = printers.map((p, i) =>
-      `<option value="${i}">${p.name}${p.type === 'network' ? ' (Ağ)' : ' (USB)'}</option>`
-    ).join('')
-
-    win.loadURL(`data:text/html,<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="font-family:system-ui,sans-serif;padding:20px;background:#1a1a1a;color:#fff;margin:0">
-<p style="margin:0 0 10px;font-size:14px;color:#aaa">Yazıcı seçin:</p>
-<select id="p" style="width:100%;padding:10px;background:#2a2a2a;color:#fff;border:1px solid #444;border-radius:8px;font-size:14px;margin-bottom:16px">
-${options}
-</select>
-<button onclick="require('electron').ipcRenderer.send('printer-select',document.getElementById('p').value)"
-  style="width:100%;padding:10px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">
-  Seç ve Kaydet
-</button>
-</body></html>`)
+    win.loadFile(path.join(__dirname, '../src/windows/printer-select.html'))
+    win.webContents.on('did-finish-load', () => {
+      win.webContents.send('printers', printers)
+    })
 
     ipcMain.once('printer-select', (_, idx: string) => {
       win.close()
@@ -178,18 +166,7 @@ async function promptApiKey() {
     webPreferences: { nodeIntegration: true, contextIsolation: false },
   })
 
-  win.loadURL(`data:text/html,<!DOCTYPE html>
-<html><head><meta charset="utf-8"></head>
-<body style="font-family:system-ui,sans-serif;padding:20px;background:#1a1a1a;color:#fff;margin:0">
-<p style="margin:0 0 10px;font-size:14px;color:#aaa">API Anahtarınızı girin:</p>
-<input id="k" type="text" autofocus
-  style="width:100%;padding:10px;background:#2a2a2a;color:#fff;border:1px solid #444;border-radius:8px;font-size:13px;box-sizing:border-box;margin-bottom:16px"
-  placeholder="qrk_...">
-<button onclick="const k=document.getElementById('k').value.trim();if(k)require('electron').ipcRenderer.send('api-key',k)"
-  style="width:100%;padding:10px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600">
-  Bağlan
-</button>
-</body></html>`)
+  win.loadFile(path.join(__dirname, '../src/windows/api-key.html'))
 
   ipcMain.once('api-key', async (_, key: string) => {
     win.close()

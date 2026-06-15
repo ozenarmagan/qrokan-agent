@@ -19,7 +19,8 @@
     },
     "files": [
       "dist/**/*",
-      "assets/**/*"
+      "assets/**/*",
+      "src/windows/**/*"
     ],
     "win": {
       "target": [{ "target": "nsis", "arch": ["x64", "ia32"] }]
