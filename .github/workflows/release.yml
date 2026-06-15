@@ -1,0 +1,97 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            out/**/*.exe
+            out/**/*.yml
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: |
+            out/**/*.dmg
+            out/**/*.yml
+
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: ./artifacts
+
+      - name: Download Mac build
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: ./artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Qrokan Agent ${{ github.ref_name }}
+          body: |
+            ## Qrokan Agent ${{ github.ref_name }}
+
+            Gelen siparişleri otomatik olarak yazıcınıza gönderir.
+
+            ### Kurulum
+            - **Windows:** `Qrokan-Agent-Setup-*.exe` dosyasını indirip çalıştırın
+            - **Mac:** `Qrokan-Agent-*.dmg` dosyasını indirip uygulamayı Applications klasörüne sürükleyin
+
+            ### Kullanım
+            1. Uygulamayı başlatın (sistem tepsisinde görünür)
+            2. Dashboard → Kiosk Ekranı → API Anahtarı oluşturun
+            3. Anahtarı uygulamaya girin
+            4. Yazıcınızı seçin — hazır!
+          files: ./artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
