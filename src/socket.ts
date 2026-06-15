@@ -1,4 +1,6 @@
-import WebSocket from 'ws'
+import https from 'https'
+import http from 'http'
+import { URL } from 'url'
 
 export interface PrintJob {
   orderId: string
@@ -18,64 +20,77 @@ interface SocketOptions {
   onPrintJob: (job: PrintJob) => void
 }
 
-const WS_URL = 'wss://qrokan.com/api/agent/ws'
+const BASE_URL = 'https://qrokan.com'
 
 export class QrokanSocket {
-  private ws: WebSocket | null = null
+  private req: http.ClientRequest | null = null
   private shouldReconnect = true
-  private pingInterval: NodeJS.Timeout | null = null
+  private buffer = ''
 
   constructor(private opts: SocketOptions) {}
 
   connect() {
     this.shouldReconnect = true
-    this.ws = new WebSocket(`${WS_URL}?apiKey=${this.opts.apiKey}`)
+    const url = new URL(`${BASE_URL}/api/agent/stream?apiKey=${this.opts.apiKey}`)
 
-    this.ws.on('open', () => {
-      console.log('WebSocket connected')
-      this.opts.onConnected()
-      // Bağlantıyı canlı tut
-      this.pingInterval = setInterval(() => {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'ping' }))
+    const lib = url.protocol === 'https:' ? https : http
+    this.req = lib.request(
+      {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'GET',
+        headers: { Accept: 'text/event-stream', 'Cache-Control': 'no-cache' },
+      },
+      (res) => {
+        if (res.statusCode === 401) {
+          console.error('Geçersiz API key')
+          this.opts.onDisconnected()
+          return
         }
-      }, 30_000)
-    })
 
-    this.ws.on('message', (data) => {
-      try {
-        const msg = JSON.parse(data.toString())
-        if (msg.type === 'print_job') {
-          this.opts.onPrintJob(msg.job as PrintJob)
-        }
-      } catch (e) {
-        console.error('WS message parse error:', e)
+        this.opts.onConnected()
+        this.buffer = ''
+
+        res.on('data', (chunk: Buffer) => {
+          this.buffer += chunk.toString()
+          const lines = this.buffer.split('\n')
+          this.buffer = lines.pop() ?? ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const msg = JSON.parse(line.slice(6))
+                if (msg.type === 'print_job') {
+                  this.opts.onPrintJob(msg.job as PrintJob)
+                }
+              } catch {}
+            }
+          }
+        })
+
+        res.on('end', () => {
+          if (this.shouldReconnect) {
+            this.opts.onDisconnected()
+            setTimeout(() => this.connect(), 10_000)
+          }
+        })
       }
-    })
+    )
 
-    this.ws.on('close', () => {
-      console.log('WebSocket disconnected')
-      this.clearPing()
+    this.req.on('error', (err) => {
+      console.error('SSE error:', err.message)
       if (this.shouldReconnect) {
         this.opts.onDisconnected()
+        setTimeout(() => this.connect(), 10_000)
       }
     })
 
-    this.ws.on('error', (err) => {
-      console.error('WebSocket error:', err.message)
-    })
+    this.req.end()
   }
 
   disconnect() {
     this.shouldReconnect = false
-    this.clearPing()
-    this.ws?.close()
-  }
-
-  private clearPing() {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval)
-      this.pingInterval = null
-    }
+    this.req?.destroy()
   }
 }
