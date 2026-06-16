@@ -1,6 +1,6 @@
 {
   "name": "qrokan-agent",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Qrokan yazıcı ajanı — gelen siparişleri otomatik yazdırır",
   "main": "dist/main.js",
   "scripts": {
@@ -27,7 +27,9 @@
     },
     "mac": {
       "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "identity": null,
+      "gatekeeperAssess": false
     },
     "nsis": {
       "oneClick": false,
