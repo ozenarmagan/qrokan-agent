@@ -1,6 +1,6 @@
 {
   "name": "qrokan-agent",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Qrokan yazıcı ajanı — gelen siparişleri otomatik yazdırır",
   "main": "dist/main.js",
   "scripts": {
@@ -36,7 +36,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "publish": null
+    "publish": {
+      "provider": "github",
+      "owner": "ozenarmagan",
+      "repo": "qrokan-agent"
+    }
   },
   "dependencies": {
     "electron-updater": "^6.1.7",
