@@ -11,9 +11,15 @@ export interface PrinterInfo {
   productId?: number
 }
 
+export interface PrinterRoute {
+  label: string       // kategori etiketi (bar, mutfak…)
+  printer: PrinterInfo
+}
+
 interface StoreData {
   apiKey?: string
   printer?: PrinterInfo
+  printerRoutes?: PrinterRoute[]
 }
 
 export class Store {

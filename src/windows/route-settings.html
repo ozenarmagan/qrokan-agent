@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #1a1a1a;
+      color: #fff;
+      padding: 20px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    h2 { font-size: 15px; font-weight: 700; color: #fff; }
+    p.desc { font-size: 12px; color: #888; line-height: 1.5; }
+    .route-list { display: flex; flex-direction: column; gap: 10px; flex: 1; overflow-y: auto; }
+    .route-row {
+      display: flex; align-items: center; gap: 8px;
+      background: #2a2a2a; border-radius: 10px; padding: 10px 12px;
+    }
+    .route-row input[type="text"] {
+      flex: 1; background: #333; border: 1px solid #444; color: #fff;
+      border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none;
+    }
+    .route-row input[type="text"]:focus { border-color: #7c3aed; }
+    .route-row select {
+      flex: 2; background: #333; border: 1px solid #444; color: #fff;
+      border-radius: 6px; padding: 6px 10px; font-size: 13px; outline: none;
+    }
+    .route-row button.del {
+      background: none; border: none; color: #666; font-size: 18px;
+      cursor: pointer; line-height: 1; padding: 2px 4px;
+    }
+    .route-row button.del:hover { color: #ef4444; }
+    .arrow { color: #555; font-size: 14px; flex-shrink: 0; }
+    .add-btn {
+      background: #2a2a2a; border: 1px dashed #444; color: #888;
+      border-radius: 8px; padding: 8px; font-size: 13px; cursor: pointer;
+      width: 100%;
+    }
+    .add-btn:hover { border-color: #7c3aed; color: #a78bfa; }
+    .footer { display: flex; gap: 10px; }
+    .save-btn {
+      flex: 1; background: #7c3aed; color: #fff; border: none;
+      border-radius: 8px; padding: 10px; font-size: 14px; font-weight: 600;
+      cursor: pointer;
+    }
+    .save-btn:hover { background: #6d28d9; }
+    .cancel-btn {
+      flex: 1; background: #2a2a2a; color: #aaa; border: 1px solid #444;
+      border-radius: 8px; padding: 10px; font-size: 14px; cursor: pointer;
+    }
+    .label-hint { font-size: 11px; color: #666; }
+  </style>
+</head>
+<body>
+  <div>
+    <h2>Yazıcı Yönlendirme</h2>
+    <p class="desc" style="margin-top:6px">Dashboard'da kategoriye atadığınız etiketi (bar, mutfak…) bir yazıcıyla eşleştirin. Etiket atanmamış ürünler varsayılan yazıcıya gider.</p>
+  </div>
+
+  <div style="display:flex;gap:8px;padding:0 0 4px 0">
+    <span style="flex:1;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.05em">Kategori Etiketi</span>
+    <span style="font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.05em;width:16px"></span>
+    <span style="flex:2;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.05em">Yazıcı</span>
+    <span style="width:28px"></span>
+  </div>
+
+  <div class="route-list" id="list"></div>
+  <button class="add-btn" onclick="addRow()">+ Yeni Eşleştirme Ekle</button>
+
+  <div class="footer">
+    <button class="save-btn" onclick="save()">Kaydet</button>
+    <button class="cancel-btn" onclick="window.close()">İptal</button>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron')
+    let printers = []
+    let routes = []
+
+    ipcRenderer.on('init', (_, data) => {
+      printers = data.printers
+      routes = data.routes.map(r => ({ label: r.label, printer: r.printer }))
+      render()
+    })
+
+    function render() {
+      const list = document.getElementById('list')
+      list.innerHTML = ''
+      routes.forEach((r, i) => {
+        const row = document.createElement('div')
+        row.className = 'route-row'
+        row.innerHTML = `
+          <input type="text" placeholder="bar" value="${r.label}" oninput="routes[${i}].label=this.value" />
+          <span class="arrow">→</span>
+          <select onchange="setPrinter(${i}, this.value)">
+            <option value="">Yazıcı seç…</option>
+            ${printers.map((p, pi) => `<option value="${pi}" ${JSON.stringify(r.printer) === JSON.stringify(p) ? 'selected' : ''}>${p.name}</option>`).join('')}
+          </select>
+          <button class="del" onclick="removeRow(${i})">×</button>
+        `
+        list.appendChild(row)
+      })
+    }
+
+    function setPrinter(i, pi) {
+      if (pi === '') return
+      routes[i].printer = printers[parseInt(pi)]
+    }
+
+    function addRow() {
+      routes.push({ label: '', printer: printers[0] ?? null })
+      render()
+    }
+
+    function removeRow(i) {
+      routes.splice(i, 1)
+      render()
+    }
+
+    function save() {
+      const valid = routes.filter(r => r.label.trim() && r.printer)
+      ipcRenderer.send('route-settings-save', valid)
+    }
+  </script>
+</body>
+</html>

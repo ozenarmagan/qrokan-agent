@@ -1,7 +1,7 @@
 import { app, Tray, Menu, nativeImage, dialog, shell, BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 import { autoUpdater } from 'electron-updater'
-import { Store } from './store'
+import { Store, type PrinterRoute } from './store'
 import { PrinterManager } from './printer'
 import { QrokanSocket } from './socket'
 
@@ -53,6 +53,7 @@ function updateTray(status: 'connected' | 'disconnected' | 'printing') {
     { type: 'separator' },
     { label: 'Yazıcıyı Otomatik Tara', click: () => autoDetectPrinter() },
     { label: 'Yazıcı Seç', click: () => selectPrinter() },
+    { label: 'Yazıcı Yönlendirme Ayarları', click: () => openRouteSettings() },
     { label: 'API Anahtarını Değiştir', click: () => promptApiKey() },
     { type: 'separator' },
     { label: 'Qrokan Dashboard', click: () => shell.openExternal('https://qrokan.com/dashboard') },
@@ -144,6 +145,40 @@ function selectPrinterFromList(printers: Awaited<ReturnType<typeof PrinterManage
   })
 }
 
+async function openRouteSettings() {
+  const printers = await PrinterManager.list()
+  const systemPrinters = printers.filter(p => p.type !== 'network')
+  const routes = store.get('printerRoutes') ?? []
+
+  const win = new BrowserWindow({
+    width: 520,
+    height: 500,
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    title: 'Yazıcı Yönlendirme — Qrokan Agent',
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  })
+
+  win.loadFile(path.join(__dirname, '../src/windows/route-settings.html'))
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.send('init', { printers: systemPrinters, routes })
+  })
+
+  ipcMain.once('route-settings-save', (_, newRoutes: PrinterRoute[]) => {
+    win.close()
+    store.set('printerRoutes', newRoutes)
+    updateTray('connected')
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Kaydedildi',
+      message: 'Yazıcı yönlendirme ayarları güncellendi.',
+    })
+  })
+
+  win.on('closed', () => {})
+}
+
 async function promptApiKey() {
   const { response } = await dialog.showMessageBox({
     type: 'question',
@@ -194,21 +229,20 @@ function connect(apiKey: string) {
     },
     onPrintJob: async (job) => {
       updateTray('printing')
-      let printer = store.get('printer')
+      const defaultPrinter = store.get('printer')
+      const routes = store.get('printerRoutes') ?? []
 
-      if (!printer) {
-        // Yazıcı seçili değil — otomatik tara, bulamazsan uyar
+      if (!defaultPrinter && routes.length === 0) {
         const printers = await PrinterManager.list()
         const real = printers.filter(p => p.type !== 'network')
         if (real.length === 1) {
           store.set('printer', real[0])
-          printer = real[0]
         } else {
           dialog.showMessageBox({
             type: 'warning',
             title: 'Yazıcı Seçilmemiş',
             message: 'Sipariş geldi ama yazıcı seçili değil.',
-            detail: 'Tray ikonuna sağ tıklayıp "Yazıcıyı Otomatik Tara" veya "Yazıcı Seç" seçeneğini kullanın.',
+            detail: 'Tray ikonuna sağ tıklayıp "Yazıcı Ayarları" seçeneğini kullanın.',
           })
           updateTray('connected')
           return
@@ -216,9 +250,25 @@ function connect(apiKey: string) {
       }
 
       try {
-        await PrinterManager.print(printer, job)
+        if (routes.length > 0) {
+          // Etiket bazlı gruplama
+          const groups = new Map<string, typeof job.items>()
+          for (const item of job.items) {
+            const route = routes.find(r => r.label === item.printer_label)
+            const key = route ? route.label : '__default__'
+            if (!groups.has(key)) groups.set(key, [])
+            groups.get(key)!.push(item)
+          }
+          for (const [key, items] of groups) {
+            const route = routes.find(r => r.label === key)
+            const printer = route?.printer ?? defaultPrinter
+            if (!printer) continue
+            await PrinterManager.print(printer, { ...job, items })
+          }
+        } else {
+          await PrinterManager.print(defaultPrinter!, job)
+        }
       } catch (e: unknown) {
-        console.error('Print error:', e)
         dialog.showMessageBox({
           type: 'error',
           title: 'Yazdırma Hatası',
