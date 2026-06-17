@@ -21,7 +21,6 @@ jobs:
       - name: Build
         run: npm run dist:win
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_PUBLISH: never
 
       - name: Upload artifacts
@@ -47,7 +46,6 @@ jobs:
       - name: Build
         run: npm run dist:mac
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ELECTRON_BUILDER_PUBLISH: never
 
       - name: Upload artifacts
