@@ -7,7 +7,7 @@ export interface PrintJob {
   orderNumber: string
   branchName: string
   tableLabel?: string
-  items: { name: string; quantity: number; notes?: string; variant?: string }[]
+  items: { name: string; quantity: number; notes?: string; variant?: { name: string } | null; modifiers?: { name: string }[] }[]
   total: number
   createdAt: string
   copies: number

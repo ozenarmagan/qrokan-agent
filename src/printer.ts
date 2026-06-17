@@ -34,13 +34,14 @@ function buildEscPos(job: PrintJob): Buffer {
   // Ürünler
   pushBytes(ESC, 0x21, 0x08)          // bold
   for (const item of job.items) {
-    const qty = `${item.quantity}x `
-    const name = item.name
-    // sağa qty+fiyat hizalama için basit padding
-    const line = qty + name
-    push(line + '\n')
-    if (item.variant) push('   > ' + item.variant + '\n')
-    if (item.notes) push('   Not: ' + item.notes + '\n')
+    push(`${item.quantity}x ${item.name}\n`)
+    pushBytes(ESC, 0x21, 0x00)        // normal
+    if (item.variant) push(`   > ${item.variant.name}\n`)
+    if (item.modifiers?.length) {
+      for (const m of item.modifiers) push(`   + ${m.name}\n`)
+    }
+    if (item.notes) push(`   Not: ${item.notes}\n`)
+    pushBytes(ESC, 0x21, 0x08)        // bold
   }
   pushBytes(ESC, 0x21, 0x00)          // normal
 
@@ -133,7 +134,10 @@ export class PrinterManager {
       lines.push('--------------------------------')
       for (const item of job.items) {
         lines.push(`${item.quantity}x ${item.name}`)
-        if (item.variant) lines.push(`   > ${item.variant}`)
+        if (item.variant) lines.push(`   > ${item.variant.name}`)
+        if (item.modifiers?.length) {
+          for (const m of item.modifiers) lines.push(`   + ${m.name}`)
+        }
         if (item.notes) lines.push(`   Not: ${item.notes}`)
       }
       lines.push('--------------------------------')
