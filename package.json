@@ -1,6 +1,6 @@
 {
   "name": "qrokan-agent",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Qrokan yazıcı ajanı — gelen siparişleri otomatik yazdırır",
   "main": "dist/main.js",
   "scripts": {
