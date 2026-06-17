@@ -85,8 +85,9 @@ export class PrinterManager {
       const { execSync } = require('child_process')
       const out: string = execSync('lpstat -p 2>/dev/null', { encoding: 'utf-8' })
       for (const line of out.split('\n')) {
-        const m = line.match(/^yazıcı\s+(\S+)|^printer\s+(\S+)/i)
-        const sysName = m?.[1] ?? m?.[2]
+        // "PrinterName yazıcısı ..." (TR) veya "printer PrinterName ..." (EN)
+        const m = line.match(/^(\S+)\s+yazıcısı/i) ?? line.match(/^printer\s+(\S+)/i)
+        const sysName = m?.[1]
         if (sysName) {
           printers.push({
             name: sysName.replace(/_/g, ' '),
