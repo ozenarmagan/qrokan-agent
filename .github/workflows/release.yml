@@ -27,12 +27,13 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
-          $file = "Qrokan.Agent.Setup.$version.exe"
-          $path = "out\$file"
-          $bytes = [System.IO.File]::ReadAllBytes($path)
+          $exe = Get-ChildItem -Path out -Filter "*.exe" -Recurse | Select-Object -First 1
+          Write-Host "Found exe: $($exe.FullName)"
+          $file = $exe.Name
+          $bytes = [System.IO.File]::ReadAllBytes($exe.FullName)
           $sha = [System.Security.Cryptography.SHA512]::Create().ComputeHash($bytes)
           $sha512 = [Convert]::ToBase64String($sha)
-          $size = (Get-Item $path).Length
+          $size = $exe.Length
           $date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ")
           @"
           version: $version
@@ -73,8 +74,11 @@ jobs:
       - name: Generate latest-mac.yml
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          ARM_FILE="Qrokan.Agent-${VERSION}-arm64.dmg"
-          X64_FILE="Qrokan.Agent-${VERSION}.dmg"
+          echo "Files in out/:"
+          ls out/
+          ARM_FILE=$(ls out/ | grep "arm64.dmg" | head -1)
+          X64_FILE=$(ls out/ | grep -v arm64 | grep ".dmg" | head -1)
+          echo "ARM: $ARM_FILE, X64: $X64_FILE"
           ARM_SHA=$(shasum -a 512 "out/${ARM_FILE}" | awk '{print $1}' | xxd -r -p | base64)
           X64_SHA=$(shasum -a 512 "out/${X64_FILE}" | awk '{print $1}' | xxd -r -p | base64)
           ARM_SIZE=$(stat -f%z "out/${ARM_FILE}")
