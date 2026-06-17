@@ -23,6 +23,28 @@ jobs:
         env:
           ELECTRON_BUILDER_PUBLISH: never
 
+      - name: Generate latest.yml
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $file = "Qrokan.Agent.Setup.$version.exe"
+          $path = "out\$file"
+          $bytes = [System.IO.File]::ReadAllBytes($path)
+          $sha = [System.Security.Cryptography.SHA512]::Create().ComputeHash($bytes)
+          $sha512 = [Convert]::ToBase64String($sha)
+          $size = (Get-Item $path).Length
+          $date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ")
+          @"
+          version: $version
+          files:
+            - url: $file
+              sha512: $sha512
+              size: $size
+          path: $file
+          sha512: $sha512
+          releaseDate: '$date'
+          "@ | Set-Content out\latest.yml
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -47,6 +69,31 @@ jobs:
         run: npm run dist:mac
         env:
           ELECTRON_BUILDER_PUBLISH: never
+
+      - name: Generate latest-mac.yml
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          ARM_FILE="Qrokan.Agent-${VERSION}-arm64.dmg"
+          X64_FILE="Qrokan.Agent-${VERSION}.dmg"
+          ARM_SHA=$(shasum -a 512 "out/${ARM_FILE}" | awk '{print $1}' | xxd -r -p | base64)
+          X64_SHA=$(shasum -a 512 "out/${X64_FILE}" | awk '{print $1}' | xxd -r -p | base64)
+          ARM_SIZE=$(stat -f%z "out/${ARM_FILE}")
+          X64_SIZE=$(stat -f%z "out/${X64_FILE}")
+          cat > out/latest-mac.yml << EOF
+          version: ${VERSION}
+          files:
+            - url: ${ARM_FILE}
+              sha512: ${ARM_SHA}
+              size: ${ARM_SIZE}
+              blockMapSize: 0
+            - url: ${X64_FILE}
+              sha512: ${X64_SHA}
+              size: ${X64_SIZE}
+              blockMapSize: 0
+          path: ${ARM_FILE}
+          sha512: ${ARM_SHA}
+          releaseDate: '$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")'
+          EOF
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
