@@ -80,9 +80,26 @@ export class PrinterManager {
       }
     } catch {}
 
-    // Ağ yazıcısı — kullanıcı manuel ekler (varsayılan port 9100)
+    // Sistem yazıcıları (CUPS — macOS/Linux)
+    try {
+      const { execSync } = require('child_process')
+      const out: string = execSync('lpstat -p 2>/dev/null', { encoding: 'utf-8' })
+      for (const line of out.split('\n')) {
+        const m = line.match(/^yazıcı\s+(\S+)|^printer\s+(\S+)/i)
+        const sysName = m?.[1] ?? m?.[2]
+        if (sysName) {
+          printers.push({
+            name: sysName.replace(/_/g, ' '),
+            type: 'system',
+            systemName: sysName,
+          })
+        }
+      }
+    } catch {}
+
+    // Manuel ağ yazıcısı (ESC/POS TCP — son seçenek)
     printers.push({
-      name: 'Ağ Yazıcısı (Manuel IP)',
+      name: 'Manuel IP (ESC/POS — 192.168.1.100:9100)',
       type: 'network',
       address: '192.168.1.100:9100',
     })
@@ -91,16 +108,47 @@ export class PrinterManager {
   }
 
   static async print(printer: PrinterInfo, job: PrintJob): Promise<void> {
-    const data = buildEscPos(job)
     const copies = job.copies ?? 1
 
     for (let i = 0; i < copies; i++) {
-      if (printer.type === 'network' && printer.address) {
-        await this.printNetwork(printer.address, data)
+      if (printer.type === 'system' && printer.systemName) {
+        await this.printSystem(printer.systemName, job)
+      } else if (printer.type === 'network' && printer.address) {
+        await this.printNetwork(printer.address, buildEscPos(job))
       } else if (printer.type === 'usb') {
-        await this.printUsb(printer, data)
+        await this.printUsb(printer, buildEscPos(job))
       }
     }
+  }
+
+  private static printSystem(printerName: string, job: PrintJob): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const { spawn } = require('child_process')
+      const lines: string[] = []
+      lines.push(job.branchName)
+      if (job.tableLabel) lines.push(job.tableLabel)
+      lines.push('#' + job.orderNumber)
+      lines.push(new Date(job.createdAt).toLocaleString('tr-TR'))
+      lines.push('--------------------------------')
+      for (const item of job.items) {
+        lines.push(`${item.quantity}x ${item.name}`)
+        if (item.variant) lines.push(`   > ${item.variant}`)
+        if (item.notes) lines.push(`   Not: ${item.notes}`)
+      }
+      lines.push('--------------------------------')
+      lines.push(`TOPLAM: ${job.total.toFixed(2)} TL`)
+      lines.push('')
+      const text = lines.join('\n')
+
+      const proc = spawn('lp', ['-d', printerName], { stdio: ['pipe', 'ignore', 'pipe'] })
+      proc.stdin.write(text)
+      proc.stdin.end()
+      proc.on('close', (code: number) => {
+        if (code === 0) resolve()
+        else reject(new Error(`lp çıkış kodu: ${code}`))
+      })
+      proc.on('error', reject)
+    })
   }
 
   private static printNetwork(address: string, data: Buffer): Promise<void> {

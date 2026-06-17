@@ -64,7 +64,7 @@ function updateTray(status: 'connected' | 'disconnected' | 'printing') {
 async function autoDetectPrinter(silent = false) {
   const printers = await PrinterManager.list()
   // Ağ placeholder'ını çıkar — sadece gerçek yazıcılar
-  const real = printers.filter(p => !(p.type === 'network' && p.name.includes('Manuel')))
+  const real = printers.filter(p => p.type !== 'network')
 
   if (real.length === 0) {
     if (!silent) {
@@ -199,7 +199,7 @@ function connect(apiKey: string) {
       if (!printer) {
         // Yazıcı seçili değil — otomatik tara, bulamazsan uyar
         const printers = await PrinterManager.list()
-        const real = printers.filter(p => !(p.type === 'network' && p.name.includes('Manuel')))
+        const real = printers.filter(p => p.type !== 'network')
         if (real.length === 1) {
           store.set('printer', real[0])
           printer = real[0]

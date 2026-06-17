@@ -4,8 +4,9 @@ import { app } from 'electron'
 
 export interface PrinterInfo {
   name: string
-  type: 'usb' | 'network'
-  address?: string  // network yazıcı için IP:port
+  type: 'usb' | 'network' | 'system'
+  address?: string     // network yazıcı için IP:port
+  systemName?: string  // CUPS/lpstat yazıcı adı
   vendorId?: number
   productId?: number
 }
